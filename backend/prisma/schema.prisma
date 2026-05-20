@@ -1,0 +1,300 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+  PROJECT_MANAGER
+  PRODUCT_OWNER
+  DEVELOPER
+  QA
+  DEVOPS
+  CLIENT_VIEWER
+  CLIENT_ADMIN
+}
+
+enum IssuePriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum IssueStatus {
+  BACKLOG
+  TODO
+  IN_PROGRESS
+  IN_REVIEW
+  DONE
+  CANCELED
+}
+
+enum IssueType {
+  TASK
+  BUG
+  STORY
+  EPIC
+}
+
+model User {
+  id              String        @id @default(uuid())
+  email           String        @unique
+  password        String
+  firstName       String?
+  lastName        String?
+  role            Role          @default(DEVELOPER)
+  organizationId  String
+  organization    Organization  @relation(fields: [organizationId], references: [id])
+  teams           TeamMember[]
+  assignedIssues  Issue[]       @relation("AssignedIssues")
+  createdIssues   Issue[]       @relation("CreatedIssues")
+  comments        IssueComment[]
+  timeLogs        TimeLog[]
+  auditLogs       AuditLog[]
+  notifications   Notification[]
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([organizationId])
+}
+
+model Organization {
+  id          String   @id @default(uuid())
+  name        String
+  slug        String   @unique
+  users       User[]
+  teams       Team[]
+  clients     Client[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Team {
+  id              String       @id @default(uuid())
+  name            String
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id])
+  members         TeamMember[]
+  projects        Project[]
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@index([organizationId])
+}
+
+model TeamMember {
+  id        String   @id @default(uuid())
+  userId    String
+  teamId    String
+  user      User     @relation(fields: [userId], references: [id])
+  team      Team     @relation(fields: [teamId], references: [id])
+  createdAt DateTime @default(now())
+
+  @@unique([userId, teamId])
+  @@index([userId])
+  @@index([teamId])
+}
+
+model Client {
+  id              String       @id @default(uuid())
+  name            String
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id])
+  apps            ClientApp[]
+  projects        Project[]
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@index([organizationId])
+}
+
+model ClientApp {
+  id        String   @id @default(uuid())
+  name      String
+  clientId  String
+  client    Client   @relation(fields: [clientId], references: [id])
+  projects  Project[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([clientId])
+}
+
+model Project {
+  id              String       @id @default(uuid())
+  name            String
+  key             String
+  description     String?      @db.Text
+  clientId        String
+  client          Client       @relation(fields: [clientId], references: [id])
+  clientAppId     String?
+  clientApp       ClientApp?   @relation(fields: [clientAppId], references: [id])
+  teamId          String?
+  team            Team?        @relation(fields: [teamId], references: [id])
+  issues          Issue[]
+  sprints         Sprint[]
+  releases        Release[]
+  repositories    Repository[]
+  deployments     Deployment[]
+  hourlyRate      Decimal?     @db.Decimal(10, 2)
+  estimatedBudget Decimal?     @db.Decimal(15, 2)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@index([clientId])
+  @@index([clientAppId])
+  @@index([teamId])
+}
+
+model Sprint {
+  id          String    @id @default(uuid())
+  name        String
+  startDate   DateTime?
+  endDate     DateTime?
+  projectId   String
+  project     Project   @relation(fields: [projectId], references: [id])
+  issues      Issue[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([projectId])
+}
+
+model Issue {
+  id              String         @id @default(uuid())
+  title           String
+  description     String?        @db.Text
+  type            IssueType      @default(TASK)
+  priority        IssuePriority  @default(MEDIUM)
+  status          IssueStatus    @default(TODO)
+  projectId       String
+  project         Project        @relation(fields: [projectId], references: [id])
+  sprintId        String?
+  sprint          Sprint?        @relation(fields: [sprintId], references: [id])
+  parentId        String?
+  parent          Issue?         @relation("IssueHierarchy", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  subtasks        Issue[]        @relation("IssueHierarchy")
+  reporterId      String
+  reporter        User           @relation("CreatedIssues", fields: [reporterId], references: [id])
+  assigneeId      String?
+  assignee        User?          @relation("AssignedIssues", fields: [assigneeId], references: [id])
+  estimate        Int?           // in minutes
+  comments        IssueComment[]
+  timeLogs        TimeLog[]
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@index([projectId])
+  @@index([sprintId])
+  @@index([reporterId])
+  @@index([assigneeId])
+  @@index([parentId])
+}
+
+model IssueComment {
+  id        String   @id @default(uuid())
+  content   String   @db.Text
+  issueId   String
+  issue     Issue    @relation(fields: [issueId], references: [id])
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([issueId])
+  @@index([authorId])
+}
+
+model Release {
+  id          String   @id @default(uuid())
+  version     String
+  name        String?
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id])
+  releasedAt  DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([projectId])
+}
+
+model TimeLog {
+  id          String   @id @default(uuid())
+  duration    Int      // in seconds
+  startTime   DateTime
+  endTime     DateTime?
+  issueId     String?
+  issue       Issue?   @relation(fields: [issueId], references: [id])
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  description String?
+  createdAt   DateTime @default(now())
+
+  @@index([issueId])
+  @@index([userId])
+}
+
+model Repository {
+  id          String   @id @default(uuid())
+  name        String
+  url         String
+  provider    String   // "github", "gitlab", etc.
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([projectId])
+}
+
+model Deployment {
+  id          String   @id @default(uuid())
+  environment String   // "production", "staging", "development"
+  version     String?
+  status      String   // "success", "failed", "pending"
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([projectId])
+}
+
+model Notification {
+  id          String   @id @default(uuid())
+  title       String
+  message     String
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  read        Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+}
+
+model WebhookLog {
+  id          String   @id @default(uuid())
+  source      String   // e.g., "github", "gitlab"
+  payload     Json
+  createdAt   DateTime @default(now())
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id])
+  action      String
+  entity      String
+  entityId    String
+  oldValue    Json?
+  newValue    Json?
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+}
